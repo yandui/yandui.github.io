@@ -1,0 +1,124 @@
+#操作系统
+-----
+
+##概述
+操作系统启动前会如何的工作?
+----
+
+计算机由五大部件组成:<br/>
+输入设备、输出设备、存储器、运算器、控制器
+
+计算机如何工作:取指执行
+
+####x86 PC
+---
+x86（inter）结构电脑刚开机时CPU处于实模式状态；cs<<4+ip
+内存中有一段固化的代码（ROM bios）//基本输入输出,位于0xFFFF0
+
+* 1. 刚开机时CPU处于实模式，CS=0xFFFF;IP=0x0000
+* 2.寻址0xFFFF0(ROM BIOS映射区)---->检测RAM,键盘，显示器，软硬	磁盘（还没执行操作系统）
+* 3.将磁盘0磁道0扇区（引导扇区，操作系统第一段代码（bootsect.s） 	512字节）读入0x7c00(内存)处
+* 4.执行bootsect.s汇编语句将0x7c00的256个字（512个字节）移动到	0x90000
+* 5 把setup.s （4个扇区）读入0x90200(将完成OS启动前的设置),将	system模块移动到内存起始位置
+* 6.跳入system（head.s是system从开始处也就是内存0x00000开始第	一段代码）紧挨着head.s的是main程序
+
+![](https://i.imgur.com/Q89NSro.jpg)
+
+###bootsect.s
+
+------------
+####start:
+
+如果硬件通过则将磁盘中的0磁道的0扇区（操作系统的引导扇区）的内容读到0x07c00，紧接着cs=0x07c0,ip=0x0000
+
+将bios读入的bootsect.s从0x7c00移到0x90000//留下这段空间留给操作系统使用
+
+####load_setup:
+
+从磁盘的第二个扇区开始读四个扇区（setup）读入到内存0x90200处
+
+####ok_load_setup:
+
+打印开机logo
+
+####read_it:
+
+读入system模块 然后将控制权转交给setup去执行
+
+--------------
+
+###setup.s
+----------
+start：
+
+ 完成OS启动前的设置
+
+int 0x15(获得物理内存的大小）并保存//便于以后操作系统管理内存；
+将得到的硬件设备的信息放到0x90000处；
+
+do_move:
+
+将system模块移到内存中的0地址处,跳到system的第一个模块开始执行（通过makefile来控制）
+
+
+所有的源码通过MakeFile生成Image
+
+setup最后:进入保护模式,临时建立一个GDT表并初始化
+
+保护模式下的地址翻译：GDT（Global Describe Table)，inter结构通过硬件产生32位地址cs（选择子）cs放的是查表的索引，利用下标查表得到基址+ip；
+
+保护模式下的中段处理：IDT，找到中断处理函数的入口地址
+
+-------
+
+ System
+
+head.s->main.c
+
+
+-----
+####引导扇区代码:bootsect.s
+    .globl begtext,begdata,begbss,endtext,enddata,endbss
+    .text //文本段
+    begtext:
+    .data //数据段
+    begdata:
+    .bss //未初始化数据段
+    begbss:
+    entry start //关键字entry告诉链接器“程序入口”
+    start:
+    mov ax, #BOOTSEG mov ds, ax
+    mov ax, #INITSEG mov es, ax
+    mov cx, #256
+    sub si, si sub di,di
+    rep movw
+    jmpi go, INITSEG
+	
+	BOOTSEG = 0x07c0
+	INITSEG = 0x9000
+	SETUPSEG = 0x9020
+
+####段间跳转 jumpi setup
+    go: mov ax,cs //cs=0x9000
+    mov ds,ax mov es,ax mov ss,ax mov sp,#0xff00
+    load_setup: //载入setup模块
+    mov dx,#0x0000 mov cx,#0x0002 mov bx,#0x0200
+    mov ax,#0x0200+SETUPLEN int 0x13 //BIOS中断
+    jnc ok_load_setup
+    mov dx,#0x0000
+    mov ax,#0x0000 //复位
+    int 0x13
+    j load_setup //重读
+
+
+
+
+[
+为什么要将数据段和代码段基地址设置为0呢?<br/>
+
+* 答：因为system模块的代码开始地址为0x0000
+
+####链接
+https://blog.csdn.net/jieqiong1/article/details/54346262
+
+https://blog.csdn.net/linzhiheng123/article/details/79470373
